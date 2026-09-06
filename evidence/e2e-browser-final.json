@@ -1,0 +1,33 @@
+{
+  "artifact": "e2e-browser-final",
+  "scope": "frozen production bundle + SSE/decision protocol",
+  "result": "pass",
+  "checks": {
+    "initial_api_connected": true,
+    "initial_evidence_count": 4,
+    "verification_6_of_6": true,
+    "verification_mentions_lint": true,
+    "partial_badge_visible": true,
+    "source_page_71": true,
+    "source_partial_reason_visible": true,
+    "failure_paused": true,
+    "failure_preserves_two_evidence": true,
+    "human_decision_disabled_during_failure": true,
+    "retry_recovers_four_evidence": true,
+    "human_override_finalized": true,
+    "audit_contains_human_override": true,
+    "audit_contains_retry": true,
+    "golden_live_sse_reaches_human_gate": true,
+    "mobile_no_horizontal_overflow": true,
+    "mobile_primary_action_visible": true,
+    "api_stream_requested": true,
+    "api_decision_requested": true,
+    "external_request_count": 0,
+    "console_error_count": 0
+  },
+  "notes": [
+    "Browser QA used the exact JavaScript and CSS emitted by the verified CI production build.",
+    "The sandbox browser blocks localhost navigation, so API protocol responses were routed in-browser using the same SSE and decision payload contract; FastAPI endpoint behaviour is independently covered by backend tests/evals.",
+    "Synthetic data only; no real bank or customer data is used."
+  ]
+}
