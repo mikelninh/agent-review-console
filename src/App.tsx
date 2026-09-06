@@ -6,7 +6,27 @@ import {
   XCircle, Zap
 } from 'lucide-react'
 import type { EvidenceItem, ReviewState, StepStatus } from './types'
-import { applyDecision, emptyRun, initialReviewState, retryDegraded, workflowEvents } from './lib/workflow'
+import { applyApiEvent, applyDecision, emptyRun, initialReviewState, retryDegraded, workflowEvents } from './lib/workflow'
+import type { ApiRunEvent } from './lib/workflow'
+
+async function consumeSse(response: Response, onEvent: (event: ApiRunEvent) => void) {
+  if (!response.ok || !response.body) throw new Error(`stream unavailable: ${response.status}`)
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const blocks = buffer.split('\n\n')
+    buffer = blocks.pop() ?? ''
+    for (const block of blocks) {
+      const dataLine = block.split('\n').find(line => line.startsWith('data: '))
+      if (dataLine) onEvent(JSON.parse(dataLine.slice(6)) as ApiRunEvent)
+    }
+  }
+}
 
 const verification = [
   ['Golden path', 'PASS'],
@@ -37,13 +57,16 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null)
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'fallback'>('checking')
   const timers = useRef<number[]>([])
+  const streamAbort = useRef<AbortController | null>(null)
 
   const supportedCount = review.evidence.filter(e => e.status === 'supported').length
   const evidenceCoverage = review.evidence.length ? Math.round((supportedCount / 4) * 100) : 0
 
-  const clearTimers = () => {
+  const clearWork = () => {
     timers.current.forEach(window.clearTimeout)
     timers.current = []
+    streamAbort.current?.abort()
+    streamAbort.current = null
   }
 
   useEffect(() => {
@@ -51,28 +74,77 @@ export default function App() {
       .then(response => { if (!response.ok) throw new Error('health check failed'); return response.json() })
       .then(() => setBackendStatus('connected'))
       .catch(() => setBackendStatus('fallback'))
-    return clearTimers
+    return clearWork
   }, [])
 
-  const replay = (mode: 'golden' | 'degraded') => {
-    clearTimers()
-    setDecisionNote('')
-    setReview(emptyRun(mode))
-    setToast(mode === 'golden' ? 'Replaying verified golden path' : 'Injecting dependency failure')
+  const runFallback = (mode: 'golden' | 'degraded') => {
     workflowEvents(mode).forEach(({ delay, patch }) => {
       const id = window.setTimeout(() => setReview(prev => ({ ...prev, ...patch })), delay)
       timers.current.push(id)
     })
   }
 
-  const decide = (decision: string) => {
-    const next = applyDecision(review, decision, decisionNote || undefined)
-    setReview(next)
-    fetch('/api/decision', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ run_id: review.runId, decision, note: decisionNote || null })
-    }).catch(() => undefined)
+  const streamReview = async (mode: 'golden' | 'degraded', retry = false) => {
+    clearWork()
+    setDecisionNote('')
+    if (retry) {
+      setReview(prev => ({
+        ...prev,
+        status: 'running',
+        failure: undefined,
+        trace: [...prev.trace, { time: 'now', actor: 'Human reviewer', title: 'Retry requested', detail: 'Resume from failed EvidenceFinder boundary', tone: 'human' }]
+      }))
+      setToast('Retrying from failed step · preserved results retained')
+    } else {
+      setReview(emptyRun(mode))
+      setToast(mode === 'golden' ? 'Streaming verified golden path' : 'Injecting dependency failure')
+    }
+
+    const controller = new AbortController()
+    streamAbort.current = controller
+    try {
+      const response = await fetch(`/api/stream?mode=${mode}${retry ? '&retry=true' : ''}`, { signal: controller.signal })
+      await consumeSse(response, event => setReview(prev => applyApiEvent(prev, event)))
+      setBackendStatus('connected')
+    } catch (error) {
+      if (controller.signal.aborted) return
+      console.warn('Live stream unavailable; switching to deterministic demo fallback.', error)
+      setBackendStatus('fallback')
+      if (retry) {
+        setReview(prev => retryDegraded(prev))
+        setToast('Recovered in deterministic fallback mode')
+      } else {
+        runFallback(mode)
+      }
+    } finally {
+      if (streamAbort.current === controller) streamAbort.current = null
+    }
+  }
+
+  const replay = (mode: 'golden' | 'degraded') => {
+    void streamReview(mode)
+  }
+
+  const retryFailedStep = () => {
+    void streamReview('degraded', true)
+  }
+
+  const decide = async (decision: string) => {
+    if (review.status !== 'awaiting_human' || review.finalDecision) return
+    if (backendStatus === 'connected') {
+      try {
+        const response = await fetch('/api/decision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ run_id: review.runId, decision, note: decisionNote || null })
+        })
+        if (!response.ok) throw new Error(`decision API failed: ${response.status}`)
+      } catch (error) {
+        console.warn('Decision API unavailable; preserving deterministic audit behaviour.', error)
+        setBackendStatus('fallback')
+      }
+    }
+    setReview(prev => applyDecision(prev, decision, decisionNote || undefined))
     setToast(`${decision} recorded in audit trail`)
   }
 
@@ -139,7 +211,7 @@ export default function App() {
             <div className="failure-banner">
               <div className="failure-icon"><PauseCircle size={22} /></div>
               <div><strong>{review.failure.title}</strong><span>{review.failure.detail}</span><small>{review.failure.preserved}</small></div>
-              <button onClick={() => { setReview(prev => retryDegraded(prev)); setToast('Recovered from failed step · preserved results retained') }}><RefreshCw size={15} /> Retry failed step</button>
+              <button onClick={retryFailedStep}><RefreshCw size={15} /> Retry failed step</button>
             </div>
           )}
 
@@ -230,7 +302,7 @@ function VerificationDrawer() {
     <p className="drawer-lead">These checks are backed by executable tests/evals in this repository. A red critical check blocks release.</p>
     <div className="verification-summary"><div><strong>6 / 6</strong><span>critical checks passing</span></div><div className="ring"><Check size={25} /></div></div>
     <div className="verification-list">{verification.map(([name, status]) => <div key={name}><span><CheckCircle2 size={16} />{name}</span><strong>{status}</strong></div>)}</div>
-    <div className="proof-note"><GitBranch size={16} /><div><strong>Deployment gate</strong><span>Type checks + frontend tests + backend tests + agent evals + production build.</span></div></div>
+    <div className="proof-note"><GitBranch size={16} /><div><strong>Deployment gate</strong><span>Lint + type checks + frontend tests + backend tests + agent evals + production build.</span></div></div>
     <div className="hash-row"><span>Evidence artifact</span><code>verification.v0.1.0.json</code></div>
   </div>
 }
