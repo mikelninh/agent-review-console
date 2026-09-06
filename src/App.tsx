@@ -1,12 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, AlertTriangle, ArrowRight, BookOpen, Check, CheckCircle2, ChevronRight,
-  CircleDot, FileCheck2, FileSearch, Fingerprint, GitBranch,
-  PauseCircle, Play, RefreshCw, SearchCheck, ShieldCheck, Sparkles, UserCheck, X,
-  XCircle, Zap
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  BookOpen,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleDot,
+  FileSearch,
+  Fingerprint,
+  GitBranch,
+  Play,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  UserCheck,
+  X,
+  XCircle
 } from 'lucide-react'
 import type { EvidenceItem, ReviewState, StepStatus } from './types'
-import { applyApiEvent, applyDecision, emptyRun, initialReviewState, retryDegraded, workflowEvents } from './lib/workflow'
+import {
+  applyApiEvent,
+  applyDecision,
+  emptyRun,
+  initialReviewState,
+  retryDegraded,
+  workflowEvents
+} from './lib/workflow'
 import type { ApiRunEvent } from './lib/workflow'
 
 async function consumeSse(response: Response, onEvent: (event: ApiRunEvent) => void) {
@@ -37,16 +59,16 @@ const verification = [
   ['Deterministic replay', 'PASS']
 ]
 
-function StatusDot({ status }: { status: StepStatus }) {
-  if (status === 'complete') return <span className="step-icon complete"><Check size={14} /></span>
-  if (status === 'active') return <span className="step-icon active"><CircleDot size={14} /></span>
-  if (status === 'failed') return <span className="step-icon failed"><X size={14} /></span>
-  return <span className="step-icon pending" />
+function EvidenceBadge({ status }: { status: EvidenceItem['status'] }) {
+  const label = status === 'supported' ? 'Supported' : status === 'partial' ? 'Partial' : 'Missing'
+  return <span className={`status-badge ${status}`}>{label}</span>
 }
 
-function EvidenceBadge({ status }: { status: EvidenceItem['status'] }) {
-  const label = status === 'supported' ? 'SUPPORTED' : status === 'partial' ? 'PARTIAL' : 'MISSING'
-  return <span className={`evidence-badge ${status}`}>{label}</span>
+function StepIcon({ status }: { status: StepStatus }) {
+  if (status === 'complete') return <span className="step-dot complete"><Check size={13} /></span>
+  if (status === 'active') return <span className="step-dot active"><CircleDot size={13} /></span>
+  if (status === 'failed') return <span className="step-dot failed"><X size={13} /></span>
+  return <span className="step-dot pending" />
 }
 
 export default function App() {
@@ -56,12 +78,15 @@ export default function App() {
   const [selectedEvidence, setSelectedEvidence] = useState<EvidenceItem>(initialReviewState.evidence[2])
   const [decisionNote, setDecisionNote] = useState('')
   const [toast, setToast] = useState<string | null>(null)
+  const [showSupported, setShowSupported] = useState(false)
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'fallback' | 'static'>(isStaticDemo ? 'static' : 'checking')
   const timers = useRef<number[]>([])
   const streamAbort = useRef<AbortController | null>(null)
 
-  const supportedCount = review.evidence.filter(e => e.status === 'supported').length
-  const evidenceCoverage = review.evidence.length ? Math.round((supportedCount / 4) * 100) : 0
+  const attentionItems = useMemo(() => review.evidence.filter(item => item.status !== 'supported'), [review.evidence])
+  const supportedItems = useMemo(() => review.evidence.filter(item => item.status === 'supported'), [review.evidence])
+  const completedSteps = review.steps.filter(step => step.status === 'complete').length
+  const evidenceCoverage = review.evidence.length ? Math.round((review.evidence.filter(item => item.citation).length / 4) * 100) : 0
 
   const clearWork = () => {
     timers.current.forEach(window.clearTimeout)
@@ -73,11 +98,23 @@ export default function App() {
   useEffect(() => {
     if (isStaticDemo) return clearWork
     fetch('/api/health')
-      .then(response => { if (!response.ok) throw new Error('health check failed'); return response.json() })
+      .then(response => {
+        if (!response.ok) throw new Error('health check failed')
+        return response.json()
+      })
       .then(() => setBackendStatus('connected'))
       .catch(() => setBackendStatus('fallback'))
     return clearWork
   }, [])
+
+  useEffect(() => {
+    if (!drawer) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDrawer(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [drawer])
 
   const runFallback = (mode: 'golden' | 'degraded') => {
     workflowEvents(mode).forEach(({ delay, patch }) => {
@@ -89,6 +126,7 @@ export default function App() {
   const streamReview = async (mode: 'golden' | 'degraded', retry = false) => {
     clearWork()
     setDecisionNote('')
+
     if (isStaticDemo) {
       setBackendStatus('static')
       if (retry) {
@@ -101,12 +139,20 @@ export default function App() {
       }
       return
     }
+
     if (retry) {
       setReview(prev => ({
         ...prev,
-        status: 'running',
-        failure: undefined,
-        trace: [...prev.trace, { time: 'now', actor: 'Human reviewer', title: 'Retry requested', detail: 'Resume from failed EvidenceFinder boundary', tone: 'human' }]
+        trace: [
+          ...prev.trace,
+          {
+            time: 'now',
+            actor: 'Human reviewer',
+            title: 'Retry requested',
+            detail: 'Resume from failed EvidenceFinder boundary',
+            tone: 'human'
+          }
+        ]
       }))
       setToast('Retrying from failed step · preserved results retained')
     } else {
@@ -133,10 +179,6 @@ export default function App() {
     } finally {
       if (streamAbort.current === controller) streamAbort.current = null
     }
-  }
-
-  const replay = (mode: 'golden' | 'degraded') => {
-    void streamReview(mode)
   }
 
   const retryFailedStep = () => {
@@ -167,178 +209,344 @@ export default function App() {
     setDrawer('source')
   }
 
-  const recommendationTone = useMemo(() => review.status === 'paused' ? 'paused' : review.finalDecision ? 'final' : 'review', [review])
+  const scrollToDecision = () => {
+    document.getElementById('human-decision')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark"><Fingerprint size={19} /></div>
-          <div><strong>Agent Review Console</strong><span>regulated decision workspace</span></div>
+      <header className="app-header">
+        <div className="brand-lockup">
+          <div className="brand-mark"><Fingerprint size={18} /></div>
+          <div>
+            <strong>Agent Review</strong>
+            <span>Third-party risk workspace</span>
+          </div>
         </div>
-        <div className="topbar-center">
-          <span className="env"><span className={`live-dot ${backendStatus}`} /> {backendStatus === 'static' ? 'VERIFIED DEMO' : backendStatus === 'connected' ? 'API CONNECTED' : backendStatus === 'checking' ? 'CHECKING API' : 'DEMO FALLBACK'}</span>
-          <span className="build"><GitBranch size={13} /> v0.1.0 · verified build</span>
-        </div>
-        <div className="top-actions">
-          <button className="ghost-button" onClick={() => setDrawer('verification')}><ShieldCheck size={16} /> Verification</button>
-          <button className="ghost-button" onClick={() => setDrawer('trace')}><Activity size={16} /> Run trace</button>
+
+        <div className="header-actions">
+          <span className={`environment ${backendStatus}`}>
+            <span className="environment-dot" />
+            {backendStatus === 'static'
+              ? 'Verified demo'
+              : backendStatus === 'connected'
+                ? 'API connected'
+                : backendStatus === 'checking'
+                  ? 'Checking API'
+                  : 'Demo mode'}
+          </span>
+          <button className="quiet-button" onClick={() => setDrawer('verification')}>
+            <ShieldCheck size={16} /> Verification
+          </button>
+          <button className="quiet-button" onClick={() => setDrawer('trace')}>
+            <Activity size={16} /> Run trace
+          </button>
         </div>
       </header>
 
-      <main className="workspace">
-        <section className="context-rail">
-          <div className="eyebrow">THIRD-PARTY ONBOARDING</div>
-          <h1>Acme Payments GmbH</h1>
-          <p className="muted">Synthetic payment infrastructure provider · Case TPR-2026-1842</p>
-
-          <div className="case-meta">
-            <div><span>Service</span><strong>Payment processing</strong></div>
-            <div><span>Region</span><strong>EU / Germany</strong></div>
-            <div><span>Criticality</span><strong>Material</strong></div>
-            <div><span>Policy</span><strong>TPRM v2026.4</strong></div>
+      <main className="review-page">
+        <section className="case-header" aria-labelledby="case-title">
+          <div>
+            <div className="breadcrumb">Third-party reviews <ChevronRight size={14} /> TPR-2026-1842</div>
+            <h1 id="case-title">Acme Payments GmbH</h1>
+            <p>Payment processing · EU / Germany · Material service</p>
           </div>
-
-          <div className="section-label">AGENT WORKFLOW</div>
-          <div className="workflow-list">
-            {review.steps.map((step, i) => (
-              <div className={`workflow-step ${step.status}`} key={step.id}>
-                <div className="step-rail"><StatusDot status={step.status} />{i < review.steps.length - 1 && <span className="step-line" />}</div>
-                <div className="step-copy"><strong>{step.label}</strong><span>{step.detail}</span>{step.duration && step.status === 'complete' && <small>{step.duration}</small>}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="replay-actions">
-            <button className="secondary-action" onClick={() => replay('golden')} disabled={review.status === 'running'}><Play size={15} /> Replay golden run</button>
-            <button className="danger-action" onClick={() => replay('degraded')} disabled={review.status === 'running'}><AlertTriangle size={15} /> Simulate failure</button>
+          <div className="case-status">
+            <span>Review status</span>
+            <strong>{review.finalDecision ? 'Decision recorded' : review.status === 'paused' ? 'Review paused' : 'Decision required'}</strong>
           </div>
         </section>
 
-        <section className="main-stage">
-          <div className="stage-header">
-            <div><div className="eyebrow">DECISION WORKSPACE</div><h2>Evidence before outcome.</h2></div>
-            <div className="run-chip"><span>RUN</span><code>{review.runId}</code></div>
+        {review.failure && review.status === 'paused' && (
+          <section className="failure-callout" aria-live="polite">
+            <div className="failure-symbol"><AlertTriangle size={20} /></div>
+            <div>
+              <strong>{review.failure.title}</strong>
+              <p>{review.failure.detail}</p>
+              <span>{review.failure.preserved}</span>
+            </div>
+            <button onClick={retryFailedStep}><RefreshCw size={15} /> Retry failed step</button>
+          </section>
+        )}
+
+        <section className={`decision-snapshot ${review.status === 'paused' ? 'paused' : ''}`}>
+          <div className="snapshot-heading">
+            <span className="snapshot-label"><Sparkles size={16} /> Agent recommendation</span>
+            <span className="human-boundary"><UserCheck size={15} /> Human decision required</span>
           </div>
 
-          {review.failure && review.status === 'paused' && (
-            <div className="failure-banner">
-              <div className="failure-icon"><PauseCircle size={22} /></div>
-              <div><strong>{review.failure.title}</strong><span>{review.failure.detail}</span><small>{review.failure.preserved}</small></div>
-              <button onClick={retryFailedStep}><RefreshCw size={15} /> Retry failed step</button>
-            </div>
-          )}
-
-          <div className={`recommendation-card ${recommendationTone}`}>
-            <div className="rec-topline"><span className="rec-label"><Sparkles size={15} /> AGENT RECOMMENDATION</span><span className="human-gate"><UserCheck size={15} /> HUMAN DECISION REQUIRED</span></div>
-            <div className="rec-body">
-              <div>
-                <h3>{review.recommendation || (review.status === 'paused' ? 'Recommendation withheld' : 'Assessing evidence…')}</h3>
-                <p>{review.summary}</p>
-              </div>
-              {review.confidence !== null && <div className="confidence"><span>Model confidence</span><strong>{Math.round(review.confidence * 100)}%</strong><small>not a decision right</small></div>}
-            </div>
-            <div className="rec-footer">
-              <div className="metric"><SearchCheck size={17} /><div><span>Evidence coverage</span><strong>{evidenceCoverage}%</strong></div></div>
-              <div className="metric"><FileCheck2 size={17} /><div><span>Supported controls</span><strong>{supportedCount} / 4 shown</strong></div></div>
-              <div className="metric"><AlertTriangle size={17} /><div><span>Open conditions</span><strong>{review.evidence.filter(e => e.status !== 'supported').length}</strong></div></div>
-            </div>
-          </div>
-
-          <div className="content-grid">
-            <section className="evidence-panel">
-              <div className="panel-heading"><div><span className="section-label">MATERIAL EVIDENCE</span><h3>Grounded control assessment</h3></div><span className="panel-count">{review.evidence.length || '—'} findings</span></div>
-              <div className="evidence-list">
-                {review.evidence.length === 0 && <div className="empty-state"><FileSearch size={24} /><span>Evidence will appear here as agents resolve it.</span></div>}
-                {review.evidence.map(item => (
-                  <article className={`evidence-row ${item.status}`} key={item.id}>
-                    <div className="control-code">{item.control}</div>
-                    <div className="evidence-copy">
-                      <div className="evidence-title"><strong>{item.question}</strong><EvidenceBadge status={item.status} /></div>
-                      <p>{item.answer}</p>
-                      {item.citation ? (
-                        <button className="citation" onClick={() => openEvidence(item)}><BookOpen size={14} /><span>{item.citation.document} · p. {item.citation.page}</span><ChevronRight size={14} /></button>
-                      ) : (
-                        <div className="missing-source"><XCircle size={14} /> No supporting source supplied</div>
-                      )}
-                      {item.reason && <div className="grounding-note"><AlertTriangle size={13} /> {item.reason}</div>}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <aside className="decision-panel">
-              <div className="panel-heading"><div><span className="section-label">HUMAN CONTROL</span><h3>Your decision</h3></div><UserCheck size={19} /></div>
-              {!review.finalDecision ? (
-                <>
-                  <p className="decision-help">The agent can recommend. Only an authorised reviewer can create the consequential outcome.</p>
-                  <label className="note-label">Reviewer note <span>optional</span></label>
-                  <textarea value={decisionNote} onChange={e => setDecisionNote(e.target.value)} placeholder="Add rationale or required evidence…" />
-                  <div className="decision-actions">
-                    <button className="primary-decision" disabled={review.status !== 'awaiting_human'} onClick={() => decide('Conditional approval confirmed')}><CheckCircle2 size={16} /> Confirm conditional approval</button>
-                    <button disabled={review.status !== 'awaiting_human'} onClick={() => decide('Request evidence')}><FileSearch size={16} /> Request evidence</button>
-                    <button disabled={review.status !== 'awaiting_human'} onClick={() => decide('Recommendation overridden')}><RefreshCw size={16} /> Override recommendation</button>
-                    <button className="reject" disabled={review.status !== 'awaiting_human'} onClick={() => decide('Rejected')}><XCircle size={16} /> Reject</button>
-                  </div>
-                </>
-              ) : (
-                <div className="decision-recorded"><div className="recorded-icon"><Check size={25} /></div><span>FINAL HUMAN DECISION</span><h4>{review.finalDecision}</h4><p>Decision locked. Actor, prior recommendation and timestamp were appended to the audit trail.</p><button onClick={() => setDrawer('trace')}>Open audit trail <ArrowRight size={14} /></button></div>
+          <div className="snapshot-body">
+            <div className="snapshot-copy">
+              <h2>{review.recommendation || (review.status === 'paused' ? 'Recommendation withheld' : 'Reviewing evidence…')}</h2>
+              <p>{review.summary}</p>
+              {attentionItems.length > 0 && review.status !== 'running' && (
+                <div className="condition-row">
+                  {attentionItems.map(item => (
+                    <button key={item.id} className={`condition-chip ${item.status}`} onClick={() => openEvidence(item)}>
+                      {item.control} · {item.status === 'partial' ? 'Needs confirmation' : 'Evidence missing'}
+                    </button>
+                  ))}
+                </div>
               )}
-              <div className="policy-gate"><ShieldCheck size={17} /><div><strong>Policy gate active</strong><span>Autonomous finalisation disabled</span></div></div>
-            </aside>
+            </div>
+
+            <div className="snapshot-action">
+              <div className="confidence-note">
+                <span>Evidence coverage</span>
+                <strong>{evidenceCoverage}%</strong>
+                <small>{review.confidence !== null ? `Model confidence ${Math.round(review.confidence * 100)}% · advisory only` : 'No recommendation produced'}</small>
+              </div>
+              {!review.finalDecision && (
+                <button className="primary-action" onClick={scrollToDecision} disabled={review.status !== 'awaiting_human'}>
+                  Review decision <ArrowRight size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="snapshot-metrics">
+            <div><span>Needs attention</span><strong>{attentionItems.length || '—'}</strong></div>
+            <div><span>Evidence shown</span><strong>{review.evidence.length || '—'} / 4</strong></div>
+            <div><span>Workflow</span><strong>{completedSteps} / 4 complete</strong></div>
+            <div><span>Decision authority</span><strong>Human reviewer</strong></div>
+          </div>
+        </section>
+
+        <div className="review-layout">
+          <section className="evidence-workspace" aria-labelledby="attention-title">
+            <div className="section-heading">
+              <div>
+                <span className="section-kicker">Evidence review</span>
+                <h2 id="attention-title">Needs attention</h2>
+                <p>Resolve these items before final approval.</p>
+              </div>
+              <span className="attention-count">{attentionItems.length} open</span>
+            </div>
+
+            <div className="attention-list">
+              {attentionItems.length === 0 && review.status === 'running' && (
+                <div className="empty-evidence"><FileSearch size={21} /> Evidence appears as the review progresses.</div>
+              )}
+              {attentionItems.map(item => (
+                <EvidenceRow key={item.id} item={item} onOpen={openEvidence} attention />
+              ))}
+            </div>
+
+            <div className="verified-section">
+              <button className="verified-toggle" onClick={() => setShowSupported(value => !value)} aria-expanded={showSupported}>
+                <span><CheckCircle2 size={17} /> {supportedItems.length} verified controls</span>
+                <ChevronDown size={17} className={showSupported ? 'rotated' : ''} />
+              </button>
+              {showSupported && (
+                <div className="verified-list">
+                  {supportedItems.map(item => <EvidenceRow key={item.id} item={item} onOpen={openEvidence} />)}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <aside className="human-panel" id="human-decision" aria-labelledby="human-title">
+            <div className="human-panel-heading">
+              <div className="human-icon"><UserCheck size={19} /></div>
+              <div>
+                <span>Human checkpoint</span>
+                <h2 id="human-title">Your decision</h2>
+              </div>
+            </div>
+
+            {!review.finalDecision ? (
+              <>
+                <p className="human-intro">The agent can recommend. Only an authorised reviewer can create the consequential outcome.</p>
+
+                <label className="note-label" htmlFor="reviewer-note">
+                  Reviewer note <span>Optional</span>
+                </label>
+                <textarea
+                  id="reviewer-note"
+                  value={decisionNote}
+                  onChange={event => setDecisionNote(event.target.value)}
+                  placeholder="Add rationale or required evidence…"
+                  disabled={review.status !== 'awaiting_human'}
+                />
+
+                <div className="human-actions">
+                  <button className="confirm-action" disabled={review.status !== 'awaiting_human'} onClick={() => decide('Conditional approval confirmed')}>
+                    <Check size={16} /> Confirm conditional approval
+                  </button>
+                  <button disabled={review.status !== 'awaiting_human'} onClick={() => decide('Request evidence')}>
+                    <FileSearch size={16} /> Request evidence
+                  </button>
+                  <button disabled={review.status !== 'awaiting_human'} onClick={() => decide('Recommendation overridden')}>
+                    <RefreshCw size={16} /> Override recommendation
+                  </button>
+                  <button className="reject-action" disabled={review.status !== 'awaiting_human'} onClick={() => decide('Rejected')}>
+                    <XCircle size={16} /> Reject
+                  </button>
+                </div>
+
+                <div className="policy-note"><ShieldCheck size={16} /><span><strong>Policy gate active.</strong> Autonomous finalisation is disabled.</span></div>
+              </>
+            ) : (
+              <div className="decision-complete">
+                <div className="complete-mark"><Check size={23} /></div>
+                <span>Final human decision</span>
+                <h3>{review.finalDecision}</h3>
+                <p>Actor, prior recommendation and timestamp were appended to the audit trail.</p>
+                <button onClick={() => setDrawer('trace')}>Open audit trail <ArrowRight size={15} /></button>
+              </div>
+            )}
+          </aside>
+        </div>
+
+        <section className="workflow-section" aria-labelledby="workflow-title">
+          <div className="workflow-header">
+            <div>
+              <span className="section-kicker">System behaviour</span>
+              <h2 id="workflow-title">Agent workflow</h2>
+              <p>Technical progress is available when you need it, not before.</p>
+            </div>
+            <div className="workflow-actions">
+              <button onClick={() => void streamReview('golden')} disabled={review.status === 'running'}><Play size={15} /> Replay golden run</button>
+              <button className="failure-button" onClick={() => void streamReview('degraded')} disabled={review.status === 'running'}><AlertTriangle size={15} /> Simulate failure</button>
+            </div>
+          </div>
+
+          <div className="workflow-strip">
+            {review.steps.map((step, index) => (
+              <div className={`workflow-item ${step.status}`} key={step.id}>
+                <div className="workflow-node">
+                  <StepIcon status={step.status} />
+                  {index < review.steps.length - 1 && <span className="workflow-connector" />}
+                </div>
+                <div>
+                  <strong>{step.label}</strong>
+                  <span>{step.detail}</span>
+                  {step.duration && step.status === 'complete' && <small>{step.duration}</small>}
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       </main>
 
-      <footer className="footer-bar">
-        <div><Zap size={14} /> Deterministic demo · synthetic data only</div>
-        <div>Spec → Build → Evaluate → Verify → Ship → Monitor</div>
-        <div className="footer-status"><span className={backendStatus} /> {backendStatus === 'static' ? 'verified deterministic demo' : backendStatus === 'connected' ? 'FastAPI connected' : backendStatus === 'fallback' ? 'deterministic fallback' : 'checking backend'}</div>
+      <footer className="app-footer">
+        <span>Synthetic data · deterministic demo</span>
+        <span className="build-ref"><GitBranch size={13} /> v0.2 · verified build</span>
       </footer>
 
-      {drawer && <div className="scrim" onMouseDown={() => setDrawer(null)}><aside className="drawer" onMouseDown={e => e.stopPropagation()}>
-        <button className="drawer-close" onClick={() => setDrawer(null)}><X size={18} /></button>
-        {drawer === 'verification' && <VerificationDrawer />}
-        {drawer === 'trace' && <TraceDrawer review={review} />}
-        {drawer === 'source' && <SourceDrawer item={selectedEvidence} />}
-      </aside></div>}
+      {drawer && (
+        <div className="scrim" onMouseDown={() => setDrawer(null)}>
+          <aside className="drawer" role="dialog" aria-modal="true" onMouseDown={event => event.stopPropagation()}>
+            <button className="drawer-close" onClick={() => setDrawer(null)} aria-label="Close detail panel"><X size={18} /></button>
+            {drawer === 'verification' && <VerificationDrawer />}
+            {drawer === 'trace' && <TraceDrawer review={review} />}
+            {drawer === 'source' && <SourceDrawer item={selectedEvidence} />}
+          </aside>
+        </div>
+      )}
 
-      {toast && <div className="toast" onAnimationEnd={() => setToast(null)}><Check size={14} /> {toast}</div>}
+      {toast && <div className="toast" role="status" onAnimationEnd={() => setToast(null)}><Check size={14} /> {toast}</div>}
     </div>
   )
 }
 
+function EvidenceRow({ item, onOpen, attention = false }: { item: EvidenceItem; onOpen: (item: EvidenceItem) => void; attention?: boolean }) {
+  return (
+    <article className={`evidence-row ${item.status} ${attention ? 'attention' : ''}`}>
+      <div className="evidence-status-mark">
+        {item.status === 'supported' ? <CheckCircle2 size={18} /> : item.status === 'partial' ? <AlertTriangle size={18} /> : <FileSearch size={18} />}
+      </div>
+      <div className="evidence-main">
+        <div className="evidence-meta"><span>{item.control}</span><EvidenceBadge status={item.status} /></div>
+        <h3>{item.question}</h3>
+        <p>{item.answer}</p>
+        {item.reason && <div className="evidence-reason">{item.reason}</div>}
+      </div>
+      <div className="evidence-source">
+        {item.citation ? (
+          <button onClick={() => onOpen(item)}><BookOpen size={15} /><span>{item.citation.document}<small>Page {item.citation.page}</small></span><ChevronRight size={15} /></button>
+        ) : (
+          <span className="no-source"><XCircle size={15} /> No source supplied</span>
+        )}
+      </div>
+    </article>
+  )
+}
+
 function VerificationDrawer() {
-  return <div className="drawer-content">
-    <div className="drawer-kicker"><ShieldCheck size={17} /> PROVE</div>
-    <h2>Verification evidence</h2>
-    <p className="drawer-lead">These checks are backed by executable tests/evals in this repository. A red critical check blocks release.</p>
-    <div className="verification-summary"><div><strong>6 / 6</strong><span>critical checks passing</span></div><div className="ring"><Check size={25} /></div></div>
-    <div className="verification-list">{verification.map(([name, status]) => <div key={name}><span><CheckCircle2 size={16} />{name}</span><strong>{status}</strong></div>)}</div>
-    <div className="proof-note"><GitBranch size={16} /><div><strong>Deployment gate</strong><span>Lint + type checks + frontend tests + backend tests + agent evals + production build.</span></div></div>
-    <div className="hash-row"><span>Evidence artifact</span><code>verification.v0.1.0.json</code></div>
-  </div>
+  return (
+    <div className="drawer-content">
+      <div className="drawer-kicker"><ShieldCheck size={17} /> PROVE</div>
+      <h2>Verification evidence</h2>
+      <p className="drawer-lead">Executable checks back the claims shown in this demo. Critical failures block release.</p>
+
+      <div className="verification-summary">
+        <div><strong>6 / 6</strong><span>critical behavioural checks passing</span></div>
+        <div className="verification-mark"><Check size={22} /></div>
+      </div>
+
+      <div className="verification-list">
+        {verification.map(([name, status]) => (
+          <div key={name}><span><CheckCircle2 size={16} /> {name}</span><strong>{status}</strong></div>
+        ))}
+      </div>
+
+      <div className="proof-note"><GitBranch size={16} /><span><strong>Release gate</strong>Lint · typecheck · frontend tests · backend tests · agent evals · production build.</span></div>
+      <div className="artifact-row"><span>Evidence artifact</span><code>verification.v0.1.0.json</code></div>
+    </div>
+  )
 }
 
 function TraceDrawer({ review }: { review: ReviewState }) {
-  return <div className="drawer-content">
-    <div className="drawer-kicker"><Activity size={17} /> WATCH</div>
-    <h2>Run trace</h2>
-    <p className="drawer-lead">A reconstruction-friendly view of agent steps, failures and human intervention.</p>
-    <div className="trace-meta"><div><span>Trace ID</span><code>{review.runId}</code></div><div><span>Status</span><strong>{review.status.replace('_', ' ')}</strong></div></div>
-    <div className="trace-list">{review.trace.map((event, i) => <div className={`trace-event ${event.tone || 'neutral'}`} key={`${event.time}-${i}`}><div className="trace-time">{event.time}</div><div className="trace-node"><span /></div><div className="trace-copy"><small>{event.actor}</small><strong>{event.title}</strong><span>{event.detail}</span></div></div>)}</div>
-  </div>
+  return (
+    <div className="drawer-content">
+      <div className="drawer-kicker"><Activity size={17} /> WATCH</div>
+      <h2>Run trace</h2>
+      <p className="drawer-lead">A reconstruction-friendly view of agent steps, failures and human intervention.</p>
+
+      <div className="trace-meta">
+        <div><span>Trace ID</span><code>{review.runId}</code></div>
+        <div><span>Status</span><strong>{review.status.replace('_', ' ')}</strong></div>
+      </div>
+
+      <div className="trace-list">
+        {review.trace.map((event, index) => (
+          <div className={`trace-event ${event.tone || 'neutral'}`} key={`${event.time}-${index}`}>
+            <div className="trace-time">{event.time}</div>
+            <div className="trace-line"><span /></div>
+            <div className="trace-copy"><small>{event.actor}</small><strong>{event.title}</strong><span>{event.detail}</span></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function SourceDrawer({ item }: { item: EvidenceItem }) {
-  return <div className="drawer-content source-drawer">
-    <div className="drawer-kicker"><BookOpen size={17} /> SOURCE INSPECTION</div>
-    <h2>{item.citation?.document || 'No source'}</h2>
-    {item.citation ? <>
-      <p className="drawer-lead">Page {item.citation.page} · {item.citation.section}</p>
-      <div className="document-frame"><div className="doc-toolbar"><span>ACME · SOC 2 TYPE II</span><span>PAGE {item.citation.page}</span></div><div className="doc-page"><div className="doc-lines"><i /><i /><i /><i /></div><blockquote>{item.citation.excerpt}</blockquote><div className="doc-lines after"><i /><i /><i /><i /><i /></div></div></div>
-      <div className={`grounding-card ${item.status}`}><div><EvidenceBadge status={item.status} /><strong>{item.control}</strong></div><p>{item.status === 'partial' ? item.reason : 'The material claim is directly supported by the cited source passage.'}</p></div>
-    </> : <div className="empty-state"><XCircle size={25} />No supporting document is available for this control.</div>}
-  </div>
+  return (
+    <div className="drawer-content source-drawer">
+      <div className="drawer-kicker"><BookOpen size={17} /> SOURCE INSPECTION</div>
+      <h2>{item.citation?.document || 'No source available'}</h2>
+
+      {item.citation ? (
+        <>
+          <p className="drawer-lead">Page {item.citation.page} · {item.citation.section}</p>
+          <div className="document-preview">
+            <div className="document-toolbar"><span>ACME · EVIDENCE</span><span>PAGE {item.citation.page}</span></div>
+            <div className="document-page">
+              <div className="fake-lines"><i /><i /><i /></div>
+              <blockquote>{item.citation.excerpt}</blockquote>
+              <div className="fake-lines after"><i /><i /><i /><i /></div>
+            </div>
+          </div>
+          <div className={`grounding-card ${item.status}`}>
+            <div><EvidenceBadge status={item.status} /><strong>{item.control}</strong></div>
+            <p>{item.status === 'partial' ? item.reason : 'The material claim is directly supported by the cited source passage.'}</p>
+          </div>
+        </>
+      ) : (
+        <div className="source-empty"><FileSearch size={25} /><strong>Evidence missing</strong><span>No supporting document was supplied for this control.</span></div>
+      )}
+    </div>
+  )
 }
