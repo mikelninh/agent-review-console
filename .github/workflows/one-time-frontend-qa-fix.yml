@@ -1,0 +1,45 @@
+name: one-time-frontend-qa-fix
+on:
+  push:
+    branches: [design/frontend-2]
+    paths:
+      - '.github/workflows/one-time-frontend-qa-fix.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: design/frontend-2
+      - name: Apply visual QA corrections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('src/App.tsx')
+          s = app.read_text()
+          s = s.replace(
+              "const evidenceCoverage = review.evidence.length ? Math.round((supportedItems.length / 4) * 100) : 0",
+              "const evidenceCoverage = review.evidence.length ? Math.round((review.evidence.filter(item => item.citation).length / 4) * 100) : 0"
+          )
+          app.write_text(s)
+
+          css = Path('src/styles.css')
+          c = css.read_text()
+          c = c.replace('.human-panel { position: static; order: -1; }', '.human-panel { position: static; }')
+          css.write_text(c)
+
+          index = Path('index.html')
+          h = index.read_text().replace('content="#07111f"', 'content="#f4f6f8"')
+          index.write_text(h)
+          PY
+      - name: Commit QA fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx src/styles.css index.html
+          git commit -m "fix: align mobile hierarchy and evidence coverage"
+          git push origin HEAD:design/frontend-2
