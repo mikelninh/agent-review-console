@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Check, CheckCircle2, ChevronRight,
-  CircleDot, Clock3, FileCheck2, FileSearch, Fingerprint, GitBranch, History,
+  CircleDot, FileCheck2, FileSearch, Fingerprint, GitBranch,
   PauseCircle, Play, RefreshCw, SearchCheck, ShieldCheck, Sparkles, UserCheck, X,
   XCircle, Zap
 } from 'lucide-react'
