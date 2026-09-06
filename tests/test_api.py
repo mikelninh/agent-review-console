@@ -10,7 +10,12 @@ def parse_sse(text: str):
 def test_health_is_explicitly_demo_mode():
     response = client.get('/api/health')
     assert response.status_code == 200
-    assert response.json() == {'status': 'ok', 'mode': 'demo', 'version': '0.1.0'}
+    assert response.json() == {
+        'status': 'ok',
+        'mode': 'demo',
+        'demo_mode': True,
+        'version': '0.1.0',
+    }
 
 def test_golden_run_stops_at_human_gate():
     response = client.get('/api/stream?mode=golden')
