@@ -50,12 +50,13 @@ function EvidenceBadge({ status }: { status: EvidenceItem['status'] }) {
 }
 
 export default function App() {
+  const isStaticDemo = import.meta.env.MODE === 'pages'
   const [review, setReview] = useState<ReviewState>(initialReviewState)
   const [drawer, setDrawer] = useState<'verification' | 'trace' | 'source' | null>(null)
   const [selectedEvidence, setSelectedEvidence] = useState<EvidenceItem>(initialReviewState.evidence[2])
   const [decisionNote, setDecisionNote] = useState('')
   const [toast, setToast] = useState<string | null>(null)
-  const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'fallback'>('checking')
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'fallback' | 'static'>(isStaticDemo ? 'static' : 'checking')
   const timers = useRef<number[]>([])
   const streamAbort = useRef<AbortController | null>(null)
 
@@ -70,6 +71,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (isStaticDemo) return clearWork
     fetch('/api/health')
       .then(response => { if (!response.ok) throw new Error('health check failed'); return response.json() })
       .then(() => setBackendStatus('connected'))
@@ -87,6 +89,18 @@ export default function App() {
   const streamReview = async (mode: 'golden' | 'degraded', retry = false) => {
     clearWork()
     setDecisionNote('')
+    if (isStaticDemo) {
+      setBackendStatus('static')
+      if (retry) {
+        setReview(prev => retryDegraded(prev))
+        setToast('Recovered from preserved state')
+      } else {
+        setReview(emptyRun(mode))
+        setToast(mode === 'golden' ? 'Replaying verified golden path' : 'Injecting dependency failure')
+        runFallback(mode)
+      }
+      return
+    }
     if (retry) {
       setReview(prev => ({
         ...prev,
@@ -163,7 +177,7 @@ export default function App() {
           <div><strong>Agent Review Console</strong><span>regulated decision workspace</span></div>
         </div>
         <div className="topbar-center">
-          <span className="env"><span className={`live-dot ${backendStatus}`} /> {backendStatus === 'connected' ? 'API CONNECTED' : backendStatus === 'checking' ? 'CHECKING API' : 'DEMO FALLBACK'}</span>
+          <span className="env"><span className={`live-dot ${backendStatus}`} /> {backendStatus === 'static' ? 'VERIFIED DEMO' : backendStatus === 'connected' ? 'API CONNECTED' : backendStatus === 'checking' ? 'CHECKING API' : 'DEMO FALLBACK'}</span>
           <span className="build"><GitBranch size={13} /> v0.1.0 · verified build</span>
         </div>
         <div className="top-actions">
@@ -280,7 +294,7 @@ export default function App() {
       <footer className="footer-bar">
         <div><Zap size={14} /> Deterministic demo · synthetic data only</div>
         <div>Spec → Build → Evaluate → Verify → Ship → Monitor</div>
-        <div className="footer-status"><span className={backendStatus} /> {backendStatus === 'connected' ? 'FastAPI connected' : backendStatus === 'fallback' ? 'deterministic fallback' : 'checking backend'}</div>
+        <div className="footer-status"><span className={backendStatus} /> {backendStatus === 'static' ? 'verified deterministic demo' : backendStatus === 'connected' ? 'FastAPI connected' : backendStatus === 'fallback' ? 'deterministic fallback' : 'checking backend'}</div>
       </footer>
 
       {drawer && <div className="scrim" onMouseDown={() => setDrawer(null)}><aside className="drawer" onMouseDown={e => e.stopPropagation()}>
