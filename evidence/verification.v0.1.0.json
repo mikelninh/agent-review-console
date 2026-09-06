@@ -1,14 +1,15 @@
 {
   "artifact": "verification.v0.1.0",
-  "status": "verified-locally",
+  "status": "release-candidate",
   "critical_checks": {
     "golden_path": "pass",
     "grounding_contract": "pass",
     "missing_evidence": "pass",
     "human_override": "pass",
     "failure_recovery": "pass",
-    "deterministic_replay": "pass"
+    "deterministic_fallback": "pass",
+    "live_sse_state_mapping": "pass"
   },
-  "release_gate": ["typescript", "frontend-tests", "backend-tests", "evals", "production-build"],
-  "note": "Generated from deterministic synthetic fixtures. CI must independently reproduce before release."
+  "release_gate": ["lint", "typescript", "frontend-tests", "backend-tests", "evals", "production-build"],
+  "note": "Synthetic fixtures only. This artifact is promoted to verified-ci only after GitHub CI independently reproduces every release gate."
 }
