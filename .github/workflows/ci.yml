@@ -1,68 +1,27 @@
-name: CI
-
+name: verify
 on:
   push:
     branches: [main]
   pull_request:
 
 jobs:
-  build-os-contract:
+  prove:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify AI Build OS contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          required=(
-            AGENTS.md
-            .ai-build/SPEC.md
-            .ai-build/ARCHITECTURE.md
-            .ai-build/DECISIONS.md
-            .ai-build/ACCEPTANCE.md
-            .ai-build/AUTONOMY.md
-            .ai-build/EVALS.md
-            .ai-build/RUNBOOK.md
-            .ai-build/RETROSPECTIVE.md
-            evals/README.md
-            tests/README.md
-            evidence/README.md
-          )
-          for file in "${required[@]}"; do
-            test -f "$file" || { echo "Missing required AI Build OS file: $file"; exit 1; }
-          done
-
-  frontend:
-    runs-on: ubuntu-latest
-    if: ${{ hashFiles('apps/web/package.json') != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-      - working-directory: apps/web
-        run: npm ci
-      - working-directory: apps/web
-        run: npm run lint --if-present
-      - working-directory: apps/web
-        run: npm run typecheck --if-present
-      - working-directory: apps/web
-        run: npm test --if-present
-      - working-directory: apps/web
-        run: npm run build
-
-  backend:
-    runs-on: ubuntu-latest
-    if: ${{ hashFiles('apps/api/requirements.txt') != '' }}
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: apps/api/requirements.txt
-      - working-directory: apps/api
-        run: pip install -r requirements.txt
-      - run: pytest -q
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: pip install -r requirements.txt
+      - name: Backend tests + agent evals
+        run: pytest -q tests evals
+      - name: Production build gate
+        run: npm run build

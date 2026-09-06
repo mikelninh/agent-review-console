@@ -1,0 +1,14 @@
+{
+  "artifact": "verification.v0.1.0",
+  "status": "verified-locally",
+  "critical_checks": {
+    "golden_path": "pass",
+    "grounding_contract": "pass",
+    "missing_evidence": "pass",
+    "human_override": "pass",
+    "failure_recovery": "pass",
+    "deterministic_replay": "pass"
+  },
+  "release_gate": ["typescript", "frontend-tests", "backend-tests", "evals", "production-build"],
+  "note": "Generated from deterministic synthetic fixtures. CI must independently reproduce before release."
+}
