@@ -143,8 +143,6 @@ export default function App() {
     if (retry) {
       setReview(prev => ({
         ...prev,
-        status: 'running',
-        failure: undefined,
         trace: [
           ...prev.trace,
           {

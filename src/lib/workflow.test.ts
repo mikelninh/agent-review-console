@@ -24,6 +24,27 @@ describe('regulated review state machine', () => {
     expect(retried.evidence.length).toBeGreaterThan(0)
   })
 
+  it('keeps a failed run recoverable until the retry stream confirms restart', () => {
+    const degraded = emptyRun('degraded')
+    const paused = {
+      ...degraded,
+      status: 'paused' as const,
+      failure: { title: 'Evidence service unavailable', detail: 'HTTP 503', preserved: '2 evidence items preserved' }
+    }
+    const retryRequested = {
+      ...paused,
+      trace: [...paused.trace, { time: 'now', actor: 'Human reviewer', title: 'Retry requested', detail: 'Resume from failure boundary', tone: 'human' as const }]
+    }
+
+    const fallbackRecovered = retryDegraded(retryRequested)
+    expect(fallbackRecovered.status).toBe('awaiting_human')
+    expect(fallbackRecovered.failure).toBeUndefined()
+
+    const liveRestarted = applyApiEvent(retryRequested, { type: 'run.started', run_id: retryRequested.runId, mode: 'degraded' })
+    expect(liveRestarted.status).toBe('running')
+    expect(liveRestarted.failure).toBeUndefined()
+  })
+
   it('prevents duplicate final decisions', () => {
     const first = applyDecision(initialReviewState, 'Request evidence')
     const second = applyDecision(first, 'Approve')
