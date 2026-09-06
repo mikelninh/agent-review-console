@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -9,6 +10,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() in {"1", "true", "yes", "on"}
 
 app = FastAPI(title="Agent Review Console API", version="0.1.0")
 app.add_middleware(
@@ -25,14 +28,22 @@ EVIDENCE = [
     {"id": "sub", "control": "TPRM-11", "status": "missing", "document": None, "page": None},
 ]
 
+
 class DecisionRequest(BaseModel):
     run_id: str
     decision: Literal["Conditional approval confirmed", "Request evidence", "Recommendation overridden", "Rejected"]
     note: str | None = None
 
+
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "mode": "demo", "version": "0.1.0"}
+    return {
+        "status": "ok",
+        "mode": "demo" if DEMO_MODE else "runtime",
+        "demo_mode": DEMO_MODE,
+        "version": "0.1.0",
+    }
+
 
 @app.get("/api/case")
 def case() -> dict:
@@ -43,6 +54,7 @@ def case() -> dict:
         "evidence": EVIDENCE,
         "policy": "TPRM v2026.4",
     }
+
 
 async def event_stream(mode: str, retry: bool = False):
     events = [
@@ -66,9 +78,15 @@ async def event_stream(mode: str, retry: bool = False):
         await asyncio.sleep(delay)
         yield f"data: {json.dumps(payload)}\n\n"
 
+
 @app.get("/api/stream")
 async def stream(mode: Literal["golden", "degraded"] = Query("golden"), retry: bool = False):
-    return StreamingResponse(event_stream(mode, retry), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        event_stream(mode, retry),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
 
 @app.post("/api/decision")
 def decision(request: DecisionRequest) -> dict:
