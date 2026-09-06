@@ -13,7 +13,7 @@ describe('regulated review state machine', () => {
     const failed = events[events.length - 1].patch
     expect(failed.status).toBe('paused')
     expect(failed.evidence?.length).toBe(2)
-    expect(failed.recommendation).toBeUndefined()
+    expect('recommendation' in failed ? failed.recommendation : undefined).toBeUndefined()
   })
 
   it('retries from the failure boundary and restores reviewable state', () => {
