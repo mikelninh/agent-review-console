@@ -1,0 +1,65 @@
+name: one-time-pages-mode
+on:
+  push:
+    paths:
+      - '.github/workflows/one-time-pages-mode.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Add explicit static demo mode
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('src/App.tsx')
+          s = app.read_text()
+          s = s.replace(
+              "export default function App() {\n",
+              "export default function App() {\n  const isStaticDemo = import.meta.env.MODE === 'pages'\n"
+          )
+          s = s.replace(
+              "const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'fallback'>('checking')",
+              "const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'fallback' | 'static'>(isStaticDemo ? 'static' : 'checking')"
+          )
+          s = s.replace(
+              "  useEffect(() => {\n    fetch('/api/health')",
+              "  useEffect(() => {\n    if (isStaticDemo) return clearWork\n    fetch('/api/health')"
+          )
+          marker = "  const streamReview = async (mode: 'golden' | 'degraded', retry = false) => {\n    clearWork()\n    setDecisionNote('')\n"
+          replacement = marker + "    if (isStaticDemo) {\n      setBackendStatus('static')\n      if (retry) {\n        setReview(prev => retryDegraded(prev))\n        setToast('Recovered from preserved state')\n      } else {\n        setReview(emptyRun(mode))\n        setToast(mode === 'golden' ? 'Replaying verified golden path' : 'Injecting dependency failure')\n        runFallback(mode)\n      }\n      return\n    }\n"
+          if marker not in s:
+              raise SystemExit('streamReview marker not found')
+          s = s.replace(marker, replacement, 1)
+          s = s.replace(
+              "{backendStatus === 'connected' ? 'API CONNECTED' : backendStatus === 'checking' ? 'CHECKING API' : 'DEMO FALLBACK'}",
+              "{backendStatus === 'static' ? 'VERIFIED DEMO' : backendStatus === 'connected' ? 'API CONNECTED' : backendStatus === 'checking' ? 'CHECKING API' : 'DEMO FALLBACK'}"
+          )
+          s = s.replace(
+              "{backendStatus === 'connected' ? 'FastAPI connected' : backendStatus === 'fallback' ? 'deterministic fallback' : 'checking backend'}",
+              "{backendStatus === 'static' ? 'verified deterministic demo' : backendStatus === 'connected' ? 'FastAPI connected' : backendStatus === 'fallback' ? 'deterministic fallback' : 'checking backend'}"
+          )
+          app.write_text(s)
+
+          vite = Path('vite.config.ts')
+          v = vite.read_text()
+          v = v.replace(
+              "export default defineConfig({\n  plugins: [react()],",
+              "export default defineConfig(({ mode }) => ({\n  base: mode === 'pages' ? '/agent-review-console/' : '/',\n  plugins: [react()],"
+          )
+          v = v.replace("\n})\n", "\n}))\n")
+          vite.write_text(v)
+          PY
+      - name: Commit source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx vite.config.ts
+          git commit -m "feat: add explicit verified GitHub Pages demo mode"
+          git push
