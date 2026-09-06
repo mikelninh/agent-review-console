@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
-  FileCheck2,
   FileSearch,
   Fingerprint,
   GitBranch,
