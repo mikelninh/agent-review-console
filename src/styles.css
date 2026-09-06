@@ -363,7 +363,7 @@ button:disabled, textarea:disabled { cursor: not-allowed; }
 @media (max-width: 980px) {
   .review-page { width: min(100% - 32px, 860px); padding-top: 30px; }
   .review-layout { grid-template-columns: 1fr; }
-  .human-panel { position: static; order: -1; }
+  .human-panel { position: static; }
   .snapshot-body { grid-template-columns: 1fr; gap: 24px; }
   .snapshot-action { display: grid; grid-template-columns: 1fr auto; align-items: end; }
   .snapshot-metrics { grid-template-columns: 1fr 1fr; }

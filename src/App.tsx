@@ -86,7 +86,7 @@ export default function App() {
   const attentionItems = useMemo(() => review.evidence.filter(item => item.status !== 'supported'), [review.evidence])
   const supportedItems = useMemo(() => review.evidence.filter(item => item.status === 'supported'), [review.evidence])
   const completedSteps = review.steps.filter(step => step.status === 'complete').length
-  const evidenceCoverage = review.evidence.length ? Math.round((supportedItems.length / 4) * 100) : 0
+  const evidenceCoverage = review.evidence.length ? Math.round((review.evidence.filter(item => item.citation).length / 4) * 100) : 0
 
   const clearWork = () => {
     timers.current.forEach(window.clearTimeout)
