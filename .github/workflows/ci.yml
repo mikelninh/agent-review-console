@@ -26,3 +26,11 @@ jobs:
         run: pytest -q tests evals
       - name: Production build gate
         run: npm run build
+      - name: Preserve verified build evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: verified-build
+          path: |
+            dist
+            evidence/verification.v0.1.0.json
+          if-no-files-found: error
