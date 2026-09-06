@@ -11,5 +11,10 @@
     "live_sse_state_mapping": "pass"
   },
   "release_gate": ["lint", "typescript", "frontend-tests", "backend-tests", "evals", "production-build"],
+  "toolchain": {
+    "node": "24",
+    "eslint": "10",
+    "python": "3.12"
+  },
   "note": "Synthetic fixtures only. This artifact is promoted to verified-ci only after GitHub CI independently reproduces every release gate."
 }
